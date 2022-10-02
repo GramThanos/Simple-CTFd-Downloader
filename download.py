@@ -1,44 +1,68 @@
 import os
 import re
 import sys
+import yaml
 import json
 import getopt
+import hashlib
 import logging
 import requests
 from tqdm import tqdm
 from urllib.parse import urljoin, urlparse
 
+# Usage
+USAGE_INFO = ('''
+python download.py
+\tMain parameters:
+\t\t-u\tThe URL of the CTFd instance
+\t\t-n\tThe name of the event
+\t\t-o\tThe output directory where the challenges will be saved
+\tAuthentication parameters (only one of them is needed):
+\t\t-t\tAn API token generated through an account's settings
+\t\t-c\tAn active session cookie for a connected account (value only), e.g. aabbccdd.abcd
 
+\tExample run:
+\t\tpython3 download.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -t my_api_token
+''')
+
+# Set loggin options
 logging.basicConfig(format='[%(levelname)s] %(message)s')
 logging.getLogger().setLevel(logging.INFO)
 
 
+VERIFY_SSL_CERT = False
+if not VERIFY_SSL_CERT:
+    from requests.packages.urllib3.exceptions import InsecureRequestWarning
+    requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-def slugify(text):
+
+def slugify(text, fallback=None):
+    if fallback == None:
+        fallback = hashlib.md5(text.encode("utf-8")).hexdigest()
     text = re.sub(r"[\s]+", "-", text.lower())
     text = re.sub(r"[-]{2,}", "-", text)
-    text = re.sub(r"[^a-z0-9\-]", "", text)
+    text = re.sub(r"[^a-zA-Z0-9\-\_\.]", "", text)
     text = re.sub(r"^-|-$", "", text)
+    text = text.strip()
+    if len(text) == 0:
+        return fallback
     return text
 
 
 def main(argv):
-    options = ('python download.py\n'
-               '-u (CTF URL)\n'
-               '-n (CTF name)\n'
-               '-o (CTF output directory)\n'
-               '-t (API token) OR -c (Cookie: session=?)\n\n'
-               'e.g python download.py -u http://ctf.url -n ctf_name -o /home/user/Desktop/ -t api_token')
+
     try:
         opts, _ = getopt.getopt(argv, 'hu:n:o:t:c:', ['help', 'url=', 'name=', 'output=', 'token=', 'cookie='])
     except getopt.GetoptError:
         print('python download.py -h')
         sys.exit(2)
+
     if len(opts) < 4:
-        print(options)
+        print(USAGE_INFO)
         sys.exit()
+
     if '-h' in opts or '--help' in opts:
-        print(options)
+        print(USAGE_INFO)
         sys.exit()
     else:
         baseUrl, ctfName, outputDir, = "", "", ""  # defaults?
@@ -62,7 +86,7 @@ def main(argv):
         logging.info("Connecting to API: %s" % apiUrl)
 
         S = requests.Session()
-        X = S.get(f"{apiUrl}/challenges", headers=headers).text
+        X = S.get(f"{apiUrl}/challenges", headers=headers, verify=VERIFY_SSL_CERT).text
 
         challs = json.loads(X)
 
@@ -74,18 +98,48 @@ def main(argv):
 
         for chall in challs['data']:
 
-            Y = json.loads(S.get(f"{apiUrl}/challenges/{chall['id']}", headers=headers).text)["data"]
+            Y = json.loads(S.get(f"{apiUrl}/challenges/{chall['id']}", headers=headers, verify=VERIFY_SSL_CERT).text)["data"]
+            if not 'description' in Y.keys():
+                continue
 
             if Y["category"] not in categories:
                 categories[Y["category"]] = [Y]
             else:
                 categories[Y["category"]].append(Y)
 
-            catDir = os.path.join(outputDir, Y["category"])
+            catDir = os.path.join(outputDir, slugify(Y["category"]))
             challDir = os.path.join(catDir, slugify(Y["name"]))
 
             os.makedirs(challDir, exist_ok=True)
             os.makedirs(catDir, exist_ok=True)
+
+            # Challenge info for yaml
+            yaml_data = {
+                'name': Y["name"],
+                'author': baseUrl,
+                'homepage': baseUrl,
+                'category': Y["category"],
+                'description': Y['description'],
+                'value': Y['value'],
+                'type': Y['type'],
+                'flags': [],
+                'topics': [],
+                'tags': Y['tags'],
+                'files': [],
+                'hints': Y['hints'],
+                'state': 'visible',
+                'version': '0.1'
+            }
+            if 'connection_info' in Y.keys():
+                yaml_data['connection_info'] = Y['connection_info']
+            if 'initial' in Y.keys():
+                yaml_data['value'] = Y['initial']
+                yaml_data['initial'] = Y['initial']
+            if 'decay' in Y.keys():
+                yaml_data['decay'] = Y['decay']
+            if 'minimum' in Y.keys():
+                yaml_data['minimum'] = Y['minimum']
+
 
             with open(os.path.join(challDir, "README.md"), "w") as chall_readme:
                 logging.info("Creating challenge readme: %s > %s" % (Y["category"], Y["name"]))
@@ -116,8 +170,8 @@ def main(argv):
                     for link_desc, link in md_links:
                         dl_url = urljoin(baseUrl, link)
 
-                        F = S.get(dl_url, stream=True)
-                        fname = urlparse(dl_url).path.split("/")[-1]
+                        F = S.get(dl_url, stream=True, verify=VERIFY_SSL_CERT)
+                        fname = slugify(urlparse(dl_url).path.split("/")[-1])
                         logging.info("Downloading image %s" % fname)
 
                         if link[0] in ["/", "\\"]:
@@ -150,11 +204,12 @@ def main(argv):
 
                         # Fetch file from remote server
                         f_url = urljoin(baseUrl, file)
-                        F = S.get(f_url, stream=True)
+                        F = S.get(f_url, stream=True, verify=VERIFY_SSL_CERT)
 
-                        fname = urlparse(f_url).path.split("/")[-1]
+                        fname = slugify(urlparse(f_url).path.split("/")[-1])
                         logging.info("Downloading file %s" % fname)
                         local_f_path = os.path.join(challFiles, fname)
+                        yaml_data['files'].append(os.path.join('files', fname))
 
                         chall_readme.write("* [%s](files/%s)\n\n" % (fname, fname))
 
@@ -170,6 +225,10 @@ def main(argv):
 
                         progress_bar.close()
 
+                # Save yaml
+                with open(os.path.join(challDir, "challenge.yml"), 'w') as yaml_file:
+                    yaml.dump(yaml_data, yaml_file, default_flow_style=False, sort_keys=False)
+                
                 chall_readme.close()
 
         with open(os.path.join(outputDir, "README.md"), "w") as ctf_readme:
@@ -185,7 +244,7 @@ def main(argv):
 
                 for chall in categories[category]:
 
-                    chall_path = "challenges/%s/%s/" % (chall['category'], slugify(chall['name']))
+                    chall_path = "challenges/%s/%s/" % (slugify(chall['category']), slugify(chall['name']))
                     ctf_readme.write("* [%s](%s)" % (chall['name'], chall_path))
 
                     if "tags" in chall and len(chall["tags"]) > 0:
