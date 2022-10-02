@@ -1,15 +1,17 @@
-import requests
-import json
-import logging
-import sys
-import getopt
 import os
-from urllib.parse import urljoin, urlparse
 import re
+import sys
+import json
+import getopt
+import logging
+import requests
 from tqdm import tqdm
+from urllib.parse import urljoin, urlparse
 
-logging.basicConfig()
-logging.root.setLevel(logging.INFO)
+
+logging.basicConfig(format='[%(levelname)s] %(message)s')
+logging.getLogger().setLevel(logging.INFO)
+
 
 
 def slugify(text):
@@ -55,9 +57,6 @@ def main(argv):
 
         os.makedirs(outputDir, exist_ok=True)
 
-        for d in ["challenges", "images"]:
-            os.makedirs(os.path.join(outputDir, d), exist_ok=True)
-
         apiUrl = urljoin(baseUrl, '/api/v1')
 
         logging.info("Connecting to API: %s" % apiUrl)
@@ -82,42 +81,49 @@ def main(argv):
             else:
                 categories[Y["category"]].append(Y)
 
-            catDir = os.path.join(outputDir, "challenges", Y["category"])
+            catDir = os.path.join(outputDir, Y["category"])
             challDir = os.path.join(catDir, slugify(Y["name"]))
 
             os.makedirs(challDir, exist_ok=True)
             os.makedirs(catDir, exist_ok=True)
 
             with open(os.path.join(challDir, "README.md"), "w") as chall_readme:
-                logging.info("Creating challenge readme: %s" % Y["name"])
+                logging.info("Creating challenge readme: %s > %s" % (Y["category"], Y["name"]))
                 chall_readme.write("# %s\n\n" % Y["name"])
                 chall_readme.write("## Description\n\n%s\n\n" % Y["description"])
 
                 files_header = False
 
                 # Find links in description
-                links = re.findall(r'(https?://[^\s]+)', Y["description"])
+                links = re.findall(r'https?://[^\s\)]+', Y["description"])
+                # Find MD images in description
+                md_links = re.findall(r'!\[(.*)\]\(([^\s\)]+)\)', Y["description"])
 
+                for link_desc, link in md_links:
+                    if link in links:
+                        links.remove(link)
+
+                # Note links from descriptions
                 if len(links) > 0:
                     for link in links:
-                        desc_links.append((Y["name"], link))
+                        desc_links.append((Y["category"], Y["name"], link))
 
-                # Find MD images in description
-                md_links = re.findall(r'!\[(.*)\]\(([^\s]+)\)', Y["description"])
-
+                # Download images from descriptions
                 if len(md_links) > 0:
+                    challFiles = os.path.join(challDir, "images")
+                    os.makedirs(challFiles, exist_ok=True)
+
                     for link_desc, link in md_links:
                         dl_url = urljoin(baseUrl, link)
 
                         F = S.get(dl_url, stream=True)
-
-                        fname = urlparse(f_url).path.split("/")[-1]
+                        fname = urlparse(dl_url).path.split("/")[-1]
+                        logging.info("Downloading image %s" % fname)
 
                         if link[0] in ["/", "\\"]:
                             link = link[1:]
 
-                        local_f_path = os.path.join(outputDir, link)
-                        os.makedirs(os.path.join(outputDir, os.path.dirname(link)), exist_ok=True)
+                        local_f_path = os.path.join(challFiles, fname)
 
                         total_size_in_bytes = int(F.headers.get('content-length', 0))
                         progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True, desc=fname)
@@ -131,6 +137,7 @@ def main(argv):
 
                         progress_bar.close()
 
+                # Download files of challenges
                 if "files" in Y and len(Y["files"]) > 0:
 
                     if not files_header:
@@ -146,6 +153,7 @@ def main(argv):
                         F = S.get(f_url, stream=True)
 
                         fname = urlparse(f_url).path.split("/")[-1]
+                        logging.info("Downloading file %s" % fname)
                         local_f_path = os.path.join(challFiles, fname)
 
                         chall_readme.write("* [%s](files/%s)\n\n" % (fname, fname))
@@ -190,9 +198,9 @@ def main(argv):
         logging.info("All done!")
 
         if len(desc_links) > 0:
-            logging.warning("** Warning, the following links were found in challenge descriptions, you may need to download these files manually.")
-            for cname, link in desc_links:
-                logging.warning("%s - %s" % (cname, link))
+            logging.warning("Warning, some links were found in challenge descriptions, you may need to download these files manually.")
+            for ccategory, cname, link in desc_links:
+                logging.warning("    %s > %s : %s" % (ccategory, cname, link))
 
 
 if __name__ == "__main__":
