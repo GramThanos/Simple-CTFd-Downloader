@@ -1,18 +1,42 @@
-# Python CTFd Downloader
-A script to download all the challenges and files from the CTFd instance.
+# Simple-CTFd-Downloader
+A script to download challenges and files from CTFd instances.
 
-### Installation
+## Usage
 
-#### Clone this repo:
+```
+python download.py
+    Main parameters:
+        -u    The URL of the CTFd instance
+        -n    The name of the event
+        -o    The output directory where the challenges will be saved
+    Authentication parameters (only one of them is needed):
+        -t    An API token generated through an account's settings
+        -c    An active session cookie for a connected account (value only), e.g. aabbccdd.abcd
 
-    git clone https://github.com/jselliott/ctfd_download_python.git
+    Example run:
+        Download using API token
+            python3 download.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -t my_api_token
+        Download using session cookie
+            python3 download.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -c the_value_of_the_session_cookie
+        Download when there is open access
+            python3 download.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -c test
+        Download from open rCTF (beta)
+            python3 download-rCTF.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -c test
+```
 
-#### Install requirements:
+## Setup
+First download the git repo
 
-    pip install -r requirements.txt
+```bash
+git clone https://github.com/GramThanos/Simple-CTFd-Downloader.git
+cd Simple-CTFd-Downloader
+```
 
-Fill in the CTFd URL, API key, output directory, and CTF name in script.
-
-#### Run The Downloader
-
-    python downloader.py
+Then insall python requirements
+```bash
+pip install -r requirements.txt
+```
+Or for spesific python version
+```bash
+python3 -m pip install -r requirements.txt
+```
