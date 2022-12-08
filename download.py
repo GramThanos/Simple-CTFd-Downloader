@@ -149,13 +149,25 @@ def main(argv):
                 files_header = False
 
                 # Find links in description
-                links = re.findall(r'https?://[^\s\)]+', Y["description"])
+                links = re.findall(r'https?://[^\s\)\"\']+', Y["description"])
+                img_links = []
+
                 # Find MD images in description
                 md_links = re.findall(r'!\[(.*)\]\(([^\s\)]+)\)', Y["description"])
 
+                # Find images in links
+                for link in links:
+                    if link.lower().endswith('.png') or link.lower().endswith('.jpg') or link.lower().endswith('.jpeg') or link.lower().endswith('.gif') or link.lower().endswith('.tiff'):
+                        img_links.append(link)
+                        links.remove(link)
+
+                # Remove links already in the md format
                 for link_desc, link in md_links:
                     if link in links:
                         links.remove(link)
+                    if link in img_links:
+                        img_links.remove(link)
+
 
                 # Note links from descriptions
                 if len(links) > 0:
@@ -174,8 +186,37 @@ def main(argv):
                         fname = slugify(urlparse(dl_url).path.split("/")[-1])
                         logging.info("Downloading image %s" % fname)
 
-                        if link[0] in ["/", "\\"]:
-                            link = link[1:]
+                        #if link[0] in ["/", "\\"]:
+                        #    link = link[1:]
+
+                        local_f_path = os.path.join(challFiles, fname)
+
+                        total_size_in_bytes = int(F.headers.get('content-length', 0))
+                        progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True, desc=fname)
+
+                        with open(local_f_path, "wb") as LF:
+                            for chunk in F.iter_content(chunk_size=1024):
+                                if chunk:
+                                    progress_bar.update(len(chunk))
+                                    LF.write(chunk)
+                            LF.close()
+
+                        progress_bar.close()
+
+                # Links that are images
+                if len(img_links) > 0:
+                    challFiles = os.path.join(challDir, "images")
+                    os.makedirs(challFiles, exist_ok=True)
+
+                    for link in img_links:
+                        dl_url = link
+
+                        F = S.get(dl_url, stream=True, verify=VERIFY_SSL_CERT)
+                        fname = slugify(urlparse(dl_url).path.split("/")[-1])
+                        logging.info("Downloading image %s" % fname)
+
+                        #if link[0] in ["/", "\\"]:
+                        #    link = link[1:]
 
                         local_f_path = os.path.join(challFiles, fname)
 

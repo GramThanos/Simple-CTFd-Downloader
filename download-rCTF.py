@@ -75,19 +75,43 @@ def main(argv):
             if opt in ('-o', '--output'):
                 outputDir = arg  # Local directory to output docs
             if opt in ('-t', '--token'):
-                headers["Authorization"] = f"Token {arg}"  # CTFd API Token
+                headers["Authorization"] = f"Bearer {arg}"  # CTFd API Token
             elif opt in ('-c', '--cookie'):
-                headers["Cookie"] = f"session={arg}"  # CTFd API Token
+                headers["Cookie"] = f"sessionid={arg}"  # CTFd API Token
 
         os.makedirs(outputDir, exist_ok=True)
 
-        apiUrl = urljoin(baseUrl, '/json')
+        challs = None
+        try:
+            apiUrl = urljoin(baseUrl, '/json')
 
-        logging.info("Connecting to API: %s" % apiUrl)
+            logging.info("Connecting to API /json: %s" % apiUrl)
 
-        S = requests.Session()
-        X = S.get(f"{apiUrl}/challs.json", headers=headers, verify=VERIFY_SSL_CERT).text
-        challs = json.loads(X)
+            S = requests.Session()
+            X = S.get(f"{apiUrl}/challs.json", headers=headers, verify=VERIFY_SSL_CERT).text
+            challs = json.loads(X)
+        except Exception as e:
+            logging.info("Failed to use API /json: %s" % apiUrl)
+
+        if not challs:
+            try:
+                apiUrl = urljoin(baseUrl, '/api/v1')
+
+                logging.info("Connecting to API /api/v1: %s" % apiUrl)
+
+                S = requests.Session()
+                X = S.get(f"{apiUrl}/challs", headers=headers, verify=VERIFY_SSL_CERT).text
+                challs = json.loads(X)
+            except Exception as e:
+                logging.info("Failed to use API /api/v1: %s" % apiUrl)
+
+        print(challs)
+        print(apiUrl)
+        
+        if not challs:
+            print('Failed to detect API.')
+            sys.exit(2)
+        
 
         categories = {}
 

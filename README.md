@@ -20,8 +20,8 @@ python download.py
             python3 download.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -c the_value_of_the_session_cookie
         Download when there is open access
             python3 download.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -c test
-        Download from open rCTF (beta)
-            python3 download-rCTF.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -c test
+        Download from rCTF using Auth Token (beta)
+            python3 download-rCTF.py -u http://ctf.url -n ctf_name -o ./ctf_name_files -t the_token_object_from_the_localstorage
 ```
 
 ## Setup
