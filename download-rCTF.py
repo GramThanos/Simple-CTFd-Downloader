@@ -82,31 +82,28 @@ def main(argv):
         os.makedirs(outputDir, exist_ok=True)
 
         challs = None
-        try:
-            apiUrl = urljoin(baseUrl, '/json')
-
-            logging.info("Connecting to API /json: %s" % apiUrl)
-
-            S = requests.Session()
-            X = S.get(f"{apiUrl}/challs.json", headers=headers, verify=VERIFY_SSL_CERT).text
-            challs = json.loads(X)
-        except Exception as e:
-            logging.info("Failed to use API /json: %s" % apiUrl)
-
-        if not challs:
+        posible_apis = [
+            '/json/challs.json',
+            '/api/v1/challs.json',
+            '/json/challs',
+            '/api/v1/challs'
+        ]
+        logging.info("Searching for API ...")
+        for api_path in posible_apis:
             try:
-                apiUrl = urljoin(baseUrl, '/api/v1')
-
-                logging.info("Connecting to API /api/v1: %s" % apiUrl)
+                apiUrl = urljoin(baseUrl, api_path)
+                #logging.info("Connecting to API: %s" % apiUrl)
 
                 S = requests.Session()
-                X = S.get(f"{apiUrl}/challs", headers=headers, verify=VERIFY_SSL_CERT).text
+                X = S.get(f"{apiUrl}", headers=headers, verify=VERIFY_SSL_CERT).text
                 challs = json.loads(X)
+                logging.info("Found API: %s" % apiUrl)
             except Exception as e:
-                logging.info("Failed to use API /api/v1: %s" % apiUrl)
+                #logging.info("Failed to use API %s" % apiUrl)
+                pass
 
-        print(challs)
-        print(apiUrl)
+        #print(challs)
+        #print(apiUrl)
         
         if not challs:
             print('Failed to detect API.')
@@ -217,7 +214,11 @@ def main(argv):
 
                         # Fetch file from remote server
                         f_url = file['url'] #urljoin(baseUrl, file)
-                        F = S.get(f_url, stream=True, verify=VERIFY_SSL_CERT)
+                        try:
+                            F = S.get(f_url, stream=True, verify=VERIFY_SSL_CERT)
+                        except Exception as e:
+                            logging.error("Failed to get file: %s" % f_url)
+                            continue
 
                         fname = slugify(file['name']) #urlparse(f_url).path.split("/")[-1]
                         logging.info("Downloading file %s" % fname)

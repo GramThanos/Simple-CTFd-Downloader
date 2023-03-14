@@ -1,5 +1,5 @@
 # Simple-CTFd-Downloader
-A script to download challenges and files from CTFd instances.
+Scripts to download challenges and files from CTF instances.
 
 ## Usage
 
@@ -40,3 +40,11 @@ Or for spesific python version
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+
+## ToDo
+Add support to download files from popular platforms
+    e.g. Google Drive, Dropbox etc.
+
+
+
