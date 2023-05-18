@@ -36,13 +36,19 @@ if not VERIFY_SSL_CERT:
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 
-def slugify(text, fallback=None):
+def slugify(text, fallback=None, isdir=False):
     if fallback == None:
         fallback = hashlib.md5(text.encode("utf-8")).hexdigest()
+    
     text = re.sub(r"[\s]+", "-", text.lower())
     text = re.sub(r"[-]{2,}", "-", text)
     text = re.sub(r"[^a-zA-Z0-9\-\_\.]", "", text)
+    #if isdir:
+    #    text = re.sub(r"\.", "", text)
     text = re.sub(r"^-|-$", "", text)
+    text = re.sub(r"\.\.+", ".", text) # dont allow multiple dots
+    text = re.sub(r"\.+$", "", text) # dont allow dots at the end
+
     text = text.strip()
     if len(text) == 0:
         return fallback
@@ -102,7 +108,7 @@ def main(argv):
             index_html_file.write(index_html)
 
 
-        apiUrl = urljoin(baseUrl, '/api/v1')
+        apiUrl = urljoin(baseUrl, 'api/v1')
 
         logging.info("Connecting to API: %s" % apiUrl)
 
@@ -128,8 +134,8 @@ def main(argv):
             else:
                 categories[Y["category"]].append(Y)
 
-            catDir = os.path.join(outputDir, slugify(Y["category"]))
-            challDir = os.path.join(catDir, slugify(Y["name"]))
+            catDir = os.path.join(outputDir, slugify(Y["category"], isdir=True))
+            challDir = os.path.join(catDir, slugify(Y["name"], isdir=True))
 
             os.makedirs(challDir, exist_ok=True)
             os.makedirs(catDir, exist_ok=True)
@@ -171,6 +177,8 @@ def main(argv):
 
                 # Find links in description
                 links = []
+                if not Y["description"]:
+                    Y["description"] = ''
                 detect_links = re.findall(r'https?://[^\s\)\"\']+', Y["description"])
                 for link in detect_links:
                     if ('](https://' in link) or ('](http://' in link):
@@ -321,7 +329,7 @@ def main(argv):
 
                 for chall in categories[category]:
 
-                    chall_path = "challenges/%s/%s/" % (slugify(chall['category']), slugify(chall['name']))
+                    chall_path = "challenges/%s/%s/" % (slugify(chall['category'], isdir=True), slugify(chall['name'], isdir=True))
                     ctf_readme.write("* [%s](%s)" % (chall['name'], chall_path))
 
                     if "tags" in chall and len(chall["tags"]) > 0:

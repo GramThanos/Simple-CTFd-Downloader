@@ -161,7 +161,7 @@ def main(argv):
                     os.makedirs(challFiles, exist_ok=True)
 
                     # Fetch file from remote server
-                    F = S.get(f"https://ctf.hackthebox.com/api/challenge/download/{chall['id']}", stream=True, verify=VERIFY_SSL_CERT)
+                    F = S.get(f"https://ctf.hackthebox.com/api/challenge/download/{chall['id']}", headers=headers, stream=True, verify=VERIFY_SSL_CERT)
 
                     fname = slugify(chall['filename'])
                     logging.info("Downloading file %s" % fname)
