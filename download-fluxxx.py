@@ -103,28 +103,31 @@ def main(argv):
         desc_links = []
 
         for chall in challs:
-
+            print(f'chall {chall}')
             X = S.get(f"{chall}", headers=headers, verify=VERIFY_SSL_CERT).text
-            chall = re.search(r'<div class="details">[^<]*<div class="challenge-title">[^<]*<h2>([^<]*)</h2>[^<]*<h4 class="text-muted">([^<]*)</h4>[^<]*</div>[^<]*<table class="challenge-meta-wrapper">[^<]*<tbody class="challenge-meta">[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>[^<]*</td>[^<]*</tr>[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>([^<]*)</td>[^<]*</tr>[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>[^<]*<span[^>]*>([^<]*)</span>[^<]*</td>[^<]*</tr>[^<]*</tbody>[^<]*</table>[^<]*<div class="description">[^<]*<div class="plainhtml">[^<]*<p>(.*)', X, re.DOTALL)
+            #chall = re.search(r'<div class="details">[^<]*<div class="challenge-title">[^<]*<h\d>([^<]*)</h\d>[^<]*<h4 class="text-muted">([^<]*)</h4>[^<]*</div>[^<]*<table class="challenge-meta-wrapper">[^<]*<tbody class="challenge-meta">[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>[^<]*</td>[^<]*</tr>[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>([^<]*)</td>[^<]*</tr>[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>[^<]*<span[^>]*>([^<]*)</span>[^<]*</td>[^<]*</tr>[^<]*</tbody>[^<]*</table>[^<]*<div class="description">[^<]*<div class="plainhtml">[^<]*<p>(.*)', X, re.DOTALL)
+            chall = re.search(r'<div class="details">[^<]*<div class="challenge-title">[^<]*<h\d>([^<]*)</h\d>[^<]*<h4 class="text-muted">([^<]*)</h4>[^<]*</div>[^<]*<table class="challenge-meta-wrapper">[^<]*<tbody class="challenge-meta">[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>[^<]*</td>[^<]*</tr>[^<]*<tr>[^<]*<td class="text-muted">[^<]*</td>[^<]*<td>([^<]*)</td>[^<]*</tr>[^<]*</tbody>[^<]*</table>[^<]*(:?<div class="meta-value">[^<]*</div>[^<]*|)<div class="description">[^<]*<div class="plainhtml">[^<]*<p>(.*)', X, re.DOTALL)
 
-            points = chall.group(4).strip()
-            if points == '🍼': # 🍼 baby
-                points = 25 * 1
-            elif points == '🧄': # 🧄 easy
-                points = 25 * 2
-            elif points == '🌶': # 🌶 medium
-                points = 25 * 4
-            elif points == '🔥': # 🔥 hard
-                points = 25 * 6
-            else:
-                points = 0
+            points = 0
+            #points = chall.group(4).strip()
+            #if points == '🍼': # 🍼 baby
+            #    points = 25 * 1
+            #elif points == '🧄': # 🧄 easy
+            #    points = 25 * 2
+            #elif points == '🌶': # 🌶 medium
+            #    points = 25 * 4
+            #elif points == '🔥': # 🔥 hard
+            #    points = 25 * 6
+            #else:
+            #    points = 0
             
             Y = {
                 "name": chall.group(1).strip(),
                 "category": chall.group(2).strip(),
                 "author": chall.group(3).strip(),
                 "points": points,
-                "description": chall.group(5)[:chall.group(5).find("</p>")].strip(),
+                #"description": chall.group(5)[:chall.group(5).find("</p>")].strip(),
+                "description": chall.group(4)[:chall.group(4).find("</p>")].strip(),
                 "files" : []
             }
 

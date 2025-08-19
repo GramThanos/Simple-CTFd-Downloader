@@ -9,6 +9,7 @@ import logging
 import requests
 from tqdm import tqdm
 from urllib.parse import urljoin, urlparse
+from bs4 import BeautifulSoup
 
 # Usage
 USAGE_INFO = ('''
@@ -91,8 +92,6 @@ def main(argv):
             elif opt in ('-cs', '--cookies'):
                 headers["Cookie"] = f"{arg}"  # CTFd API Token
 
-        #headers["User-Agent"] = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0"
-
 
         ctfName = ctfName.strip()
         outputDir = outputDir.strip()
@@ -117,34 +116,49 @@ def main(argv):
             index_html_file.write(index_html)
 
 
-        apiUrl = urljoin(baseUrl, 'api/v1')
 
-        logging.info("Connecting to API: %s" % apiUrl)
+        X = S.get(f"{baseUrl}/Challenges", headers=headers, verify=VERIFY_SSL_CERT).text
+        soup = BeautifulSoup(X, 'html.parser')
+        challs = []
+        tmp = {}
+        tmp_category = None
+        for child in soup.find('div', class_='row').findChildren(recursive=False):
+            if 'text-start' in child['class'] and 'text-uppercase' in child['class']:
+                tmp_category = child.get_text(strip=True).strip()
+            elif child.find('h5', class_='modal-title'):
+                name = child.find('h5', class_='modal-title').get_text(strip=True).split('(')[0].strip()
+                tmp[name] = tmp_category
+            #print(child['class'])
+            #sys.exit(0)
+        #print(tmp)
+        #sys.exit(0)
+        
+        for element in soup.find_all('div', class_='modal-dialog modal-dialog-centered modal-lg'):
+            name = element.find('h5', class_='modal-title').get_text(strip=True).split('(')[0].strip()
+            value = int(element.find('h5', class_='modal-title').get_text(strip=True).split('(')[1].split(' ')[0].strip())
+            body = element.find('div', class_='modal-body').prettify()
+            challs.append({
+                'name' : name,
+                'category' : tmp[name],
+                'description' : body,
+                'value' : value,
+                'type' : 'static',
+                'tags' : [],
+                'hints' : [],
+            })
 
-        X = S.get(f"{apiUrl}/challenges", headers=headers, verify=VERIFY_SSL_CERT).text
-        try:
-            challs = json.loads(X)
-        except Exception as e:
-            print(X)
-            raise e
-
-        if 'message' in challs:
-            print(challs['message'])
-            sys.exit(1)
+        #print(challs)
+        #sys.exit(0)
 
         categories = {}
 
-        logging.info("Retrieved %d challenges..." % len(challs['data']))
+        logging.info("Retrieved %d challenges..." % len(challs))
 
         desc_links = []
         failed_to_download_links = []
 
-        for chall in challs['data']:
+        for Y in challs:
 
-            Y = S.get(f"{apiUrl}/challenges/{chall['id']}", headers=headers, verify=VERIFY_SSL_CERT).text
-            Y = json.loads(Y)["data"]
-            if not 'description' in Y.keys():
-                continue
 
             if Y["category"] not in categories:
                 categories[Y["category"]] = [Y]
@@ -199,8 +213,8 @@ def main(argv):
                 detect_links = re.findall(r'https?://[^\s\)\"\']+', Y["description"])
                 for link in detect_links:
                     if ('](https://' in link) or ('](http://' in link):
-                        links.append(link.split('](')[1].rstrip(')'))
-                    else:
+                        link = link.split('](')[1].rstrip(')')
+                    if not link in links:
                         links.append(link)
 
                 # Find MD images in description

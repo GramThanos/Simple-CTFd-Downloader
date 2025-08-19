@@ -14,7 +14,7 @@ from urllib.parse import urljoin, urlparse
 USAGE_INFO = ('''
 python download.py
 \tMain parameters:
-\t\t-u\tThe URL of the rCTF instance
+\t\t-u\tThe URL of the CTFd instance
 \t\t-n\tThe name of the event
 \t\t-o\tThe output directory where the challenges will be saved
 \tAuthentication parameters (only one of them is needed):
@@ -36,16 +36,26 @@ if not VERIFY_SSL_CERT:
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 
-def slugify(text, fallback=None):
+def slugify(text, fallback=None, isdir=False):
     if fallback == None:
         fallback = hashlib.md5(text.encode("utf-8")).hexdigest()
+    
     text = re.sub(r"[\s]+", "-", text.lower())
     text = re.sub(r"[-]{2,}", "-", text)
     text = re.sub(r"[^a-zA-Z0-9\-\_\.]", "", text)
+    #if isdir:
+    #    text = re.sub(r"\.", "", text)
     text = re.sub(r"^-|-$", "", text)
+    text = re.sub(r"\.\.+", ".", text) # dont allow multiple dots
+    text = re.sub(r"\.+$", "", text) # dont allow dots at the end
+
     text = text.strip()
+    # If name is empty
     if len(text) == 0:
         return fallback
+    # If name is too big
+    if len(text) > 256:
+        return text[:255]
     return text
 
 
@@ -54,7 +64,7 @@ def main(argv):
     try:
         opts, _ = getopt.getopt(argv, 'hu:n:o:t:c:', ['help', 'url=', 'name=', 'output=', 'token=', 'cookie='])
     except getopt.GetoptError:
-        print('python download-rCTF.py -h')
+        print('python download.py -h')
         sys.exit(2)
 
     if len(opts) < 4:
@@ -75,59 +85,64 @@ def main(argv):
             if opt in ('-o', '--output'):
                 outputDir = arg  # Local directory to output docs
             if opt in ('-t', '--token'):
-                headers["Authorization"] = f"Bearer {arg}"  # CTFd API Token
+                headers["Authorization"] = f"Token {arg}"  # CTFd API Token
             elif opt in ('-c', '--cookie'):
-                headers["Cookie"] = f"sessionid={arg}"  # CTFd API Token
+                headers["Cookie"] = f"{arg}"  # CTFd API Token
 
+        ctfName = ctfName.strip()
+        outputDir = outputDir.strip()
+
+        # if no output dir, use ctf name
+        if len(outputDir) < 1:
+            outputDir = ctfName
+        # if no ctf name, use output dir
+        if len(ctfName) < 1:
+            ctfName = outputDir
+
+        # Create folder
         os.makedirs(outputDir, exist_ok=True)
 
-        challs = None
-        posible_apis = [
-            '/json/challs.json',
-            '/api/v1/challs.json',
-            '/json/challs',
-            '/api/v1/challs'
-        ]
-        logging.info("Searching for API ...")
-        for api_path in posible_apis:
-            try:
-                apiUrl = urljoin(baseUrl, api_path)
-                #logging.info("Connecting to API: %s" % apiUrl)
+        # Session to interact with the page
+        S = requests.Session()
 
-                S = requests.Session()
-                X = S.get(f"{apiUrl}", headers=headers, verify=VERIFY_SSL_CERT).text
-                challs = json.loads(X)
-                logging.info("Found API: %s" % apiUrl)
-            except Exception as e:
-                #logging.info("Failed to use API %s" % apiUrl)
-                #print(X)
-                pass
+        # Download front page
+        index_html = S.get(f"{baseUrl}", headers=headers, verify=VERIFY_SSL_CERT).text
+        with open(os.path.join(outputDir, "index.html"), "w") as index_html_file:
+            logging.info("Saving CTF's index page ...")
+            index_html_file.write(index_html)
 
+
+        apiUrl = urljoin(baseUrl, 'api/')
+
+        logging.info("Connecting to API: %s" % apiUrl)
+
+        X = S.get(f"{apiUrl}challenges", headers=headers, verify=VERIFY_SSL_CERT).text
+
+        challs = json.loads(X)
+        #print(f"{apiUrl}challenges")
         #print(challs)
-        #print(apiUrl)
-        
-        if not challs:
-            print('Failed to detect API.')
-            sys.exit(2)
-        
+        #print(headers)
 
         categories = {}
 
-        logging.info("Retrieved %d challenges..." % len(challs['data']))
+        logging.info("Retrieved %d challenges..." % len(challs['challenges']))
 
         desc_links = []
+        failed_to_download_links = []
 
-        for chall in challs['data']:
+        for chall in challs['challenges']:
 
             Y = chall
+            if not 'description' in Y.keys():
+                continue
 
             if Y["category"] not in categories:
                 categories[Y["category"]] = [Y]
             else:
                 categories[Y["category"]].append(Y)
 
-            catDir = os.path.join(outputDir, slugify(Y["category"]))
-            challDir = os.path.join(catDir, slugify(Y["name"]))
+            catDir = os.path.join(outputDir, slugify(Y["category"], isdir=True))
+            challDir = os.path.join(catDir, slugify(Y["name"], isdir=True))
 
             os.makedirs(challDir, exist_ok=True)
             os.makedirs(catDir, exist_ok=True)
@@ -135,58 +150,129 @@ def main(argv):
             # Challenge info for yaml
             yaml_data = {
                 'name': Y["name"],
-                'author': Y["author"],
+                'author': baseUrl,
                 'homepage': baseUrl,
                 'category': Y["category"],
                 'description': Y['description'],
-                'value': Y['points'],
-                'type': 'standard',
+                'value': Y['point'],
+                'type': 'dynamic',
                 'flags': [],
                 'topics': [],
-                'tags': [],
+                'tags': Y['tags'],
                 'files': [],
                 'hints': [],
                 'state': 'visible',
                 'version': '0.1'
             }
+            #if 'connection_info' in Y.keys():
+            #    yaml_data['connection_info'] = Y['connection_info']
+            #if 'initial' in Y.keys():
+            #    yaml_data['value'] = Y['initial']
+            #    yaml_data['initial'] = Y['initial']
+            #if 'decay' in Y.keys():
+            #    yaml_data['decay'] = Y['decay']
+            #if 'minimum' in Y.keys():
+            #    yaml_data['minimum'] = Y['minimum']
 
 
             with open(os.path.join(challDir, "README.md"), "w") as chall_readme:
                 logging.info("Creating challenge readme: %s > %s" % (Y["category"], Y["name"]))
                 chall_readme.write("# %s\n\n" % Y["name"])
-                chall_readme.write("# by %s\n\n" % Y["author"])
                 chall_readme.write("## Description\n\n%s\n\n" % Y["description"])
 
                 files_header = False
 
                 # Find links in description
-                links = re.findall(r'https?://[^\s\)]+', Y["description"])
-                # Find MD images in description
-                md_links = re.findall(r'!\[(.*)\]\(([^\s\)]+)\)', Y["description"])
+                links = []
+                if not Y["description"]:
+                    Y["description"] = ''
+                detect_links = re.findall(r'https?://[^\s\)\"\']+', Y["description"])
+                for link in detect_links:
+                    if ('](https://' in link) or ('](http://' in link):
+                        links.append(link.split('](')[1].rstrip(')'))
+                    else:
+                        links.append(link)
 
-                for link_desc, link in md_links:
-                    if link in links:
+                # Find MD images in description
+                md_image_links = re.findall(r'!\[(.*)\]\(([^\s\)]+)\)', Y["description"])
+                #md_links = re.findall(r'(?<!!)\[(.*)\]\(([^\s\)]+)\)', Y["description"])
+
+                img_links = []
+                # Find images in links
+                for link in links:
+                    if link.lower().endswith('.png') or link.lower().endswith('.jpg') or link.lower().endswith('.jpeg') or link.lower().endswith('.gif') or link.lower().endswith('.tiff'):
+                        img_links.append(link)
                         links.remove(link)
 
+                # Remove links already in the md format
+                for link_desc, link in md_image_links:
+                    if link in links:
+                        links.remove(link)
+                    if link in img_links:
+                        img_links.remove(link)
+
+
                 # Note links from descriptions
+                Y["files"] = []
                 if len(links) > 0:
                     for link in links:
-                        desc_links.append((Y["category"], Y["name"], link))
+                        f_name = link #os.path.basename(urlparse(link).path)
+                        if f_name.endswith('.zip') or f_name.endswith('.tar') or f_name.endswith('.tar.gz'):
+                            Y["files"].append(link)
+                        else:
+                            desc_links.append((Y["category"], Y["name"], link))
 
                 # Download images from descriptions
-                if len(md_links) > 0:
+                if len(md_image_links) > 0:
                     challFiles = os.path.join(challDir, "images")
                     os.makedirs(challFiles, exist_ok=True)
 
-                    for link_desc, link in md_links:
+                    for link_desc, link in md_image_links:
                         dl_url = urljoin(baseUrl, link)
 
-                        F = S.get(dl_url, stream=True, verify=VERIFY_SSL_CERT)
+                        try:
+                            F = S.get(dl_url, stream=True, verify=VERIFY_SSL_CERT)
+                        except Exception as e:
+                            failed_to_download_links.append((Y["category"], Y["name"], dl_url))
+                            continue
                         fname = slugify(urlparse(dl_url).path.split("/")[-1])
                         logging.info("Downloading image %s" % fname)
 
-                        if link[0] in ["/", "\\"]:
-                            link = link[1:]
+                        #if link[0] in ["/", "\\"]:
+                        #    link = link[1:]
+
+                        local_f_path = os.path.join(challFiles, fname)
+
+                        total_size_in_bytes = int(F.headers.get('content-length', 0))
+                        progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True, desc=fname)
+
+                        with open(local_f_path, "wb") as LF:
+                            for chunk in F.iter_content(chunk_size=1024):
+                                if chunk:
+                                    progress_bar.update(len(chunk))
+                                    LF.write(chunk)
+                            LF.close()
+
+                        progress_bar.close()
+
+                # Links that are images
+                if len(img_links) > 0:
+                    challFiles = os.path.join(challDir, "images")
+                    os.makedirs(challFiles, exist_ok=True)
+
+                    for link in img_links:
+                        dl_url = link
+
+                        try:
+                            F = S.get(dl_url, stream=True, verify=VERIFY_SSL_CERT)
+                        except Exception as e:
+                            failed_to_download_links.append((Y["category"], Y["name"], dl_url))
+                            continue
+                        fname = slugify(urlparse(dl_url).path.split("/")[-1])
+                        logging.info("Downloading image %s" % fname)
+
+                        #if link[0] in ["/", "\\"]:
+                        #    link = link[1:]
 
                         local_f_path = os.path.join(challFiles, fname)
 
@@ -214,16 +300,10 @@ def main(argv):
                     for file in Y["files"]:
 
                         # Fetch file from remote server
-                        f_url = file['url'] #urljoin(baseUrl, file)
-                        if f_url.startswith('/') or (not ':' in f_url):
-                            f_url = urljoin(baseUrl, f_url)
-                        try:
-                            F = S.get(f_url, stream=True, verify=VERIFY_SSL_CERT)
-                        except Exception as e:
-                            logging.error("Failed to get file: %s" % f_url)
-                            continue
+                        f_url = urljoin(baseUrl, file)
+                        F = S.get(f_url, stream=True, verify=VERIFY_SSL_CERT)
 
-                        fname = slugify(file['name']) #urlparse(f_url).path.split("/")[-1]
+                        fname = slugify(urlparse(f_url).path.split("/")[-1])
                         logging.info("Downloading file %s" % fname)
                         local_f_path = os.path.join(challFiles, fname)
                         yaml_data['files'].append(os.path.join('files', fname))
@@ -261,7 +341,7 @@ def main(argv):
 
                 for chall in categories[category]:
 
-                    chall_path = "challenges/%s/%s/" % (slugify(chall['category']), slugify(chall['name']))
+                    chall_path = "%s/%s/" % (slugify(chall['category'], isdir=True), slugify(chall['name'], isdir=True))
                     ctf_readme.write("* [%s](%s)" % (chall['name'], chall_path))
 
                     if "tags" in chall and len(chall["tags"]) > 0:
@@ -277,7 +357,10 @@ def main(argv):
             logging.warning("Warning, some links were found in challenge descriptions, you may need to download these files manually.")
             for ccategory, cname, link in desc_links:
                 logging.warning("    %s > %s : %s" % (ccategory, cname, link))
-
+        if len(failed_to_download_links) > 0:
+            logging.warning("Warning, failed to download some files.")
+            for ccategory, cname, link in failed_to_download_links:
+                logging.warning("    %s > %s : %s" % (ccategory, cname, link))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

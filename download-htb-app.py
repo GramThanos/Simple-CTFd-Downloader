@@ -3,25 +3,24 @@ import re
 import sys
 import yaml
 import json
+import time
 import getopt
 import hashlib
 import logging
 import requests
 from tqdm import tqdm
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
 
 # Usage
 USAGE_INFO = ('''
 python download-htb.py
 \tMain parameters:
-\t\t-i\tThe id of the HackTheBox event
-\t\t-n\tThe name of the event
 \t\t-o\tThe output directory where the challenges will be saved
 \tAuthentication parameters (only one of them is needed):
 \t\t-t\tAn API token, get it from the console by running `localStorage.getItem("ctf-token")`
 
 \tExample run:
-\t\tpython3 download-htb.py -i 32 -n ctf_name -o ./ctf_name_files -t my_api_token
+\t\tpython3 download-htb-app.py -o ./ctf_name_files -t my_api_token
 ''')
 
 # Set loggin options
@@ -51,12 +50,12 @@ def slugify(text, fallback=None):
 def main(argv):
 
     try:
-        opts, _ = getopt.getopt(argv, 'hi:n:o:t:c:', ['help', 'id=', 'name=', 'output=', 'token='])
+        opts, _ = getopt.getopt(argv, 'ho:t:', ['help', 'output=', 'token='])
     except getopt.GetoptError:
         print('python download-htb.py -h')
         sys.exit(2)
 
-    if len(opts) < 3:
+    if len(opts) < 2:
         print(USAGE_INFO)
         sys.exit()
 
@@ -64,19 +63,21 @@ def main(argv):
         print(USAGE_INFO)
         sys.exit()
     else:
-        eventid, ctfName, outputDir, = "", "", ""  # defaults?
-        headers = {"Content-Type": "application/json"}
+        outputDir = ""
+        headers = {
+            #"Content-Type": "application/json"
+            "accept" : "application/json, text/plain, */*",
+            "accept-language" : "en-US,en;q=0.9,el;q=0.8,en-GB;q=0.7",
+            "referer" : "https://app.hackthebox.com/",
+            "user-agent" : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0"
+        }
         for opt, arg in opts:
-            if opt in ('-i', '--id'):
-                eventid = arg
-            if opt in ('-n', '--name'):
-                ctfName = arg  # Event Name
             if opt in ('-o', '--output'):
                 outputDir = arg  # Local directory to output docs
             if opt in ('-t', '--token'):
                 headers["Authorization"] = f"Bearer {arg}"  # HTB API Token
 
-        ctfName = ctfName.strip()
+        ctfName = 'Hack The Box - App'
         outputDir = outputDir.strip()
 
         # if no output dir, use ctf name
@@ -91,31 +92,50 @@ def main(argv):
 
         # Session to interact with the page
         S = requests.Session()
-        apiUrl = urljoin('https://ctf.hackthebox.com/api/ctfs/', eventid);
 
-        # Download event info
-        logging.info("Connecting to API: %s" % apiUrl)
-        res = S.get(f"{apiUrl}", headers=headers, verify=VERIFY_SSL_CERT).text
-        info = json.loads(res)
+        # Download challenges info
+        logging.info("Retrieving HTB App challenges...")
+        challenges_info = []
+        i = 1
+        while True:
+            logging.info(f"Retrieving HTB App challenges > Page {i}...")
+            res = S.get(f"https://labs.hackthebox.com/api/v4/challenges?state=active&page={i}&sort_type=asc", headers=headers, verify=VERIFY_SSL_CERT).text
+            info = json.loads(res)
 
-        logging.info('Downloading: ' + info['name'])
-        logging.info('Event Status: ' + info['status'])
+            if (not 'data' in info) or (not 'links' in info) or (not 'meta' in info):
+                print('Error reading api')
+                sys.exit(2)
 
-        # Download categories info
-        logging.info("Retrieving HTB categories...")
-        res = S.get(f"https://ctf.hackthebox.com/api/public/challenge-categories", headers=headers, verify=VERIFY_SSL_CERT).text
-        categories_info_list = json.loads(res)
-        categories_info = {}
-        for cat in categories_info_list:
-            categories_info[cat['id']] = cat['name']
+            challenges_info = challenges_info + info['data']
 
+            if info['meta']['last_page'] == i:
+                break
+
+            i += 1
+            logging.info("Wait for 1 sec so that we dont overload server ...")
+            time.sleep(1)
 
         categories = {}
-        logging.info("The event has %d challenges..." % len(info['challenges']))
+        logging.info("The app has %d challenges..." % len(challenges_info))
         desc_links = []
 
-        for chall in info['challenges']:
-            chall['category'] = categories_info[chall["challenge_category_id"]]
+        for chall in challenges_info:
+            logging.info("Wait for 5 sec so that we dont overload server ...")
+            time.sleep(5)
+
+            name = chall["name"]
+            name_url_encoded = quote(name, safe="!~*'()")
+            res = S.get(f"https://labs.hackthebox.com/api/v4/challenge/info/{name_url_encoded}", headers=headers, verify=VERIFY_SSL_CERT).text
+            chall_info = json.loads(res)
+            if not 'challenge' in chall_info:
+                print(chall_info)
+                print(f"https://labs.hackthebox.com/api/v4/challenge/info/{name_url_encoded}")
+                logging.info("Failed to load challenge %s" % chall["category_name"])
+                continue
+            chall_info = chall_info['challenge']
+
+            chall['category'] = chall["category_name"]
+            chall_info['category'] = chall["category_name"]
 
             if chall['category'] not in categories:
                 categories[chall['category']] = [chall]
@@ -130,18 +150,17 @@ def main(argv):
 
             # Challenge info for yaml
             yaml_data = {
-                'name': chall["name"],
-                'author': chall["creator"],
-                'homepage': f"https://ctf.hackthebox.com/event/{eventid}",
-                'category': chall['category'],
-                'description': chall['description'],
-                'value': chall['points'],
+                'name': chall_info["name"],
+                'author': chall_info["creator_name"],
+                'homepage': f"https://app.hackthebox.com/",
+                'category': chall_info['category_name'],
+                'description': chall_info['description'],
+                'value': chall_info['points'],
                 'type': 'standard',
                 'flags': [],
                 'topics': [],
-                'tags': [chall['difficulty']],
+                'tags': [chall_info['difficulty']],
                 'files': [],
-                'hints': chall['flag_hint'] if 'flag_hint' in chall and chall['flag_hint'] else [],
                 'state': 'visible',
                 'version': '0.1'
             }
@@ -150,10 +169,10 @@ def main(argv):
             with open(os.path.join(challDir, "README.md"), "w") as chall_readme:
                 logging.info("Creating challenge readme: %s > %s" % (chall['category'], chall["name"]))
                 chall_readme.write("# %s\n\n" % chall["name"])
-                chall_readme.write("## Description\n\n%s\n\n" % chall["description"])
+                chall_readme.write("## Description\n\n%s\n\n" % chall_info["description"])
 
                 # Download files of challenges
-                if chall['filename']:
+                if chall_info['download']:
 
                     chall_readme.write("## Files\n\n")
 
@@ -161,9 +180,9 @@ def main(argv):
                     os.makedirs(challFiles, exist_ok=True)
 
                     # Fetch file from remote server
-                    F = S.get(f"https://ctf.hackthebox.com/api/challenges/{chall['id']}/download", headers=headers, stream=True, verify=VERIFY_SSL_CERT)
+                    F = S.get(f"https://labs.hackthebox.com/api/v4/challenge/download/{chall_info['id']}", headers=headers, stream=True, verify=VERIFY_SSL_CERT)
 
-                    fname = slugify(chall['filename'])
+                    fname = slugify(chall_info['name'] + '.zip')
                     logging.info("Downloading file %s" % fname)
                     local_f_path = os.path.join(challFiles, fname)
                     yaml_data['files'].append(os.path.join('files', fname))

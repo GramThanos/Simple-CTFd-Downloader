@@ -62,7 +62,7 @@ def slugify(text, fallback=None, isdir=False):
 def main(argv):
 
     try:
-        opts, _ = getopt.getopt(argv, 'hu:n:o:t:c:cs:', ['help', 'url=', 'name=', 'output=', 'token=', 'cookie=', 'cookies='])
+        opts, _ = getopt.getopt(argv, 'hu:n:o:t:c:', ['help', 'url=', 'name=', 'output=', 'token=', 'cookie='])
     except getopt.GetoptError:
         print('python download.py -h')
         sys.exit(2)
@@ -88,11 +88,6 @@ def main(argv):
                 headers["Authorization"] = f"Token {arg}"  # CTFd API Token
             elif opt in ('-c', '--cookie'):
                 headers["Cookie"] = f"session={arg}"  # CTFd API Token
-            elif opt in ('-cs', '--cookies'):
-                headers["Cookie"] = f"{arg}"  # CTFd API Token
-
-        #headers["User-Agent"] = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0"
-
 
         ctfName = ctfName.strip()
         outputDir = outputDir.strip()
@@ -122,15 +117,10 @@ def main(argv):
         logging.info("Connecting to API: %s" % apiUrl)
 
         X = S.get(f"{apiUrl}/challenges", headers=headers, verify=VERIFY_SSL_CERT).text
-        try:
-            challs = json.loads(X)
-        except Exception as e:
-            print(X)
-            raise e
+        challs = json.loads(X)
 
         if 'message' in challs:
             print(challs['message'])
-            sys.exit(1)
 
         categories = {}
 
@@ -141,9 +131,55 @@ def main(argv):
 
         for chall in challs['data']:
 
-            Y = S.get(f"{apiUrl}/challenges/{chall['id']}", headers=headers, verify=VERIFY_SSL_CERT).text
-            Y = json.loads(Y)["data"]
-            if not 'description' in Y.keys():
+            Y = S.get(urljoin(baseUrl, f"/challenges/{chall['id']}"), headers=headers, verify=VERIFY_SSL_CERT).text
+
+            # Extract name
+            tmp_name_match = re.search(r'<span class="challenge-name">\s*(.*?)\s*</span>', Y, re.DOTALL)
+            tmp_name = tmp_name_match.group(1) if tmp_name_match else "N/A"
+
+            # Extract value
+            tmp_value_match = re.search(r'<span class="challenge-value">\s*(.*?)\s*</span>', Y, re.DOTALL)
+            tmp_value = tmp_value_match.group(1) if tmp_value_match else "N/A"
+
+            # Extract description and convert to markdown
+            tmp_description_match = re.search(r'<div class="challenge-desc">(.*?)</div>', Y, re.DOTALL)
+            tmp_description_html = tmp_description_match.group(1) if tmp_description_match else "N/A"
+
+            # Extract author if it is at the end of the description
+            tmp_author_match = re.search(r'<p><strong>author</strong>:\s*(.*?)\s*</p>', tmp_description_html, re.DOTALL)
+            tmp_author = tmp_author_match.group(1).strip() if tmp_author_match else "N/A"
+            tmp_description_html = re.sub(r'<p><strong>author</strong>:\s*(.*?)\s*</p>', '', tmp_description_html, flags=re.DOTALL)
+
+            # Replace HTML tags with Markdown equivalents
+            tmp_description_md = re.sub(r'<p>(.*?)</p>', r'\1\n\n', tmp_description_html, flags=re.DOTALL)
+            tmp_description_md = re.sub(r'<a href="(.*?)">(.*?)</a>', r'[\2](\1)', tmp_description_md)
+            tmp_description_md = re.sub(r'<strong>(.*?)</strong>', r'**\1**', tmp_description_md)
+            tmp_description_md = re.sub(r'&quot;', r'"', tmp_description_md)
+            tmp_description_md = tmp_description_md.strip()
+
+
+            # Extract files
+            tmp_files = re.findall(r'<a\s+href="(.*?)"\s+title=".*?"\s+target="_blank"\s+alt="[^"]+"\s+class="file-button-wrapper_link"', Y)
+            tmp_files = [tmp_file.strip() for tmp_file in tmp_files] if tmp_files else []
+
+            #Y = json.loads(Y)["data"]
+            Y = {
+                'name': tmp_name,
+                'author': tmp_author,
+                'category': 'na',
+                'description': tmp_description_md,
+                'value': tmp_value,
+                'type': 'static',
+                'tags': [],
+                'files': tmp_files,
+                'hints': [],
+            }
+            #print(Y)
+            #continue
+
+
+            if not 'description' in Y.keys() or Y['description'] == "N/A":
+                print('Skipping challenge ...')
                 continue
 
             if Y["category"] not in categories:
@@ -319,14 +355,6 @@ def main(argv):
                         chall_readme.write("* [%s](files/%s)\n\n" % (fname, fname))
 
                         total_size_in_bytes = int(F.headers.get('content-length', 0))
-
-                        if os.path.isfile(local_f_path):
-                            if total_size_in_bytes == os.path.getsize(local_f_path):
-                                print('File is already download')
-                                continue
-                            else:
-                                print('File is already download, but size is mismatched... redownloading')
-                        
                         progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True, desc=fname)
 
                         with open(local_f_path, "wb") as LF:
